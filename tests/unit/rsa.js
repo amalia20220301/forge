@@ -8,6 +8,7 @@ var PSS = require('../../lib/pss');
 var RANDOM = require('../../lib/random');
 var RSA = require('../../lib/rsa');
 var UTIL = require('../../lib/util');
+const hash = require("hash.js");
 
 (function() {
   var _pem = {
@@ -96,7 +97,7 @@ var UTIL = require('../../lib/util');
     function _genSync(options) {
       options = options || {samePrng: false};
       var pair;
-      if(options.samePrng) {
+      if (options.samePrng) {
         pair = RSA.generateKeyPair(512, {prng: _samePrng()});
       } else {
         pair = RSA.generateKeyPair(512);
@@ -107,7 +108,7 @@ var UTIL = require('../../lib/util');
 
     // generate pair in async mode
     function _genAsync(options, callback) {
-      if(typeof callback !== 'function') {
+      if (typeof callback !== 'function') {
         callback = options;
         options = {samePrng: false};
       }
@@ -115,10 +116,10 @@ var UTIL = require('../../lib/util');
         bits: 512,
         workerScript: '/forge/prime.worker.js'
       };
-      if(options.samePrng) {
+      if (options.samePrng) {
         genOptions.prng = _samePrng();
       }
-      if('workers' in options) {
+      if ('workers' in options) {
         genOptions.workers = options.workers;
       }
       RSA.generateKeyPair(genOptions, function(err, pair) {
@@ -132,23 +133,23 @@ var UTIL = require('../../lib/util');
     // NOTE: needs to match implementation details
     function isDeterministic(isPrng, isAsync, isPurejs) {
       // always needs to have a prng
-      if(!isPrng) {
+      if (!isPrng) {
         return false;
       }
-      if(UTIL.isNodejs) {
+      if (UTIL.isNodejs) {
         // Node versions >= 10.12.0 support native keyPair generation,
         // which is non-deterministic
-        if(isAsync && !isPurejs &&
+        if (isAsync && !isPurejs &&
           typeof require('crypto').generateKeyPair === 'function') {
           return false;
         }
-        if(!isAsync && !isPurejs &&
+        if (!isAsync && !isPurejs &&
           typeof require('crypto').generateKeyPairSync === 'function') {
           return false;
         }
       } else {
         // async browser code has race conditions with multiple workers
-        if(isAsync) {
+        if (isAsync) {
           return false;
         }
       }
@@ -160,14 +161,50 @@ var UTIL = require('../../lib/util');
       _genSync();
     });
 
-    it('should generate 512 bit key pair (sync+purejs)', function() {
+    it('should generate 512 bit key pair (sync+purejs)', function(done) {
       // save
-      var purejs = FORGE.options.usePureJavaScript;
-      // test pure mode
-      FORGE.options.usePureJavaScript = true;
-      _genSync();
+      // var purejs = FORGE.options.usePureJavaScript;
+      // // test pure mode
+      // FORGE.options.usePureJavaScript = true;
+      // _genSync();
+      let hash = require('hash.js');
+      let HmacDrgb = require('hmac-drbg');
+
+      function createPrng(seed) {
+        var hmacDrgb = new HmacDrgb({
+          hash: hash.sha256,
+          entropy: UTIL.binary.hex.encode(seed),
+          nonce: null,
+          pers: null
+        });
+        let prng = {};
+        prng.getBytesSync = function(size) {
+          const bytesArray = hmacDrgb.generate(size);
+          const bytes = new Uint8Array(bytesArray);
+          console.log('---------------')
+          console.log(bytesArray)
+          console.log('---------------')
+          return UTIL.binary.raw.encode(bytes);
+        };
+        return prng;
+      }
+      let seed = new Uint8Array([
+        2,   3, 237, 101,  79, 125, 127, 187, 177, 119, 212,
+        103, 219, 251, 131, 193, 108, 210, 130,  66, 224, 199,
+        91, 246,   9, 221, 107,  18, 193, 174, 196, 228, 135,
+        9, 143, 104, 228, 194,  38,   9, 168, 164, 244,  64,
+        57, 123, 161, 127, 115,  91, 166, 201,  23, 141, 203,
+        111,  78,  93,  49,  89,  40, 128, 100, 109
+      ])
+      RSA.generateKeyPair(2048, 65537, {prng: createPrng(seed)}, function(err, keyPair){
+          console.log('------generateKeyPair---------');
+          console.log('private key p', keyPair.privateKey.p);
+          console.log('private key q', keyPair.privateKey.q);
+          console.log('---------------');
+          done();
+        }
+      );
       // restore
-      FORGE.options.usePureJavaScript = purejs;
     });
 
     it('should generate 512 bit key pair (async)', function(done) {
@@ -198,31 +235,31 @@ var UTIL = require('../../lib/util');
 
     it('should generate same 512 bit key pair (prng+sync,prng+sync)',
       function() {
-      var pair1 = _genSync({samePrng: true});
-      var pair2 = _genSync({samePrng: true});
-      _pairCmp(pair1, pair2);
-    });
+        var pair1 = _genSync({samePrng: true});
+        var pair2 = _genSync({samePrng: true});
+        _pairCmp(pair1, pair2);
+      });
 
     it('should generate same 512 bit key pair (prng+sync,prng+sync+purejs)',
       function() {
-      if(!isDeterministic(true, false, false) ||
-        !isDeterministic(true, false, true)) {
-        this.skip();
-      }
-      var pair1 = _genSync({samePrng: true});
-      // save
-      var purejs = FORGE.options.usePureJavaScript;
-      // test pure mode
-      FORGE.options.usePureJavaScript = true;
-      var pair2 = _genSync({samePrng: true});
-      // restore
-      FORGE.options.usePureJavaScript = purejs;
-      _pairCmp(pair1, pair2);
-    });
+        if (!isDeterministic(true, false, false) ||
+          !isDeterministic(true, false, true)) {
+          this.skip();
+        }
+        var pair1 = _genSync({samePrng: true});
+        // save
+        var purejs = FORGE.options.usePureJavaScript;
+        // test pure mode
+        FORGE.options.usePureJavaScript = true;
+        var pair2 = _genSync({samePrng: true});
+        // restore
+        FORGE.options.usePureJavaScript = purejs;
+        _pairCmp(pair1, pair2);
+      });
 
     it('should generate same 512 bit key pair ' +
       '(prng+sync+purejs,prng+sync+purejs)', function() {
-      if(!isDeterministic(true, false, true) ||
+      if (!isDeterministic(true, false, true) ||
         !isDeterministic(true, false, true)) {
         this.skip();
       }
@@ -239,54 +276,56 @@ var UTIL = require('../../lib/util');
 
     it('should generate same 512 bit key pair (prng+sync,prng+async)',
       function(done) {
-      if(!isDeterministic(true, false, false) ||
-        !isDeterministic(true, true, false)) {
-        this.skip();
-      }
-      var pair1 = _genSync({samePrng: true});
-      _genAsync({samePrng: true}, function(pair2) {
-        _pairCmp(pair1, pair2);
-        done();
+        if (!isDeterministic(true, false, false) ||
+          !isDeterministic(true, true, false)) {
+          this.skip();
+        }
+        var pair1 = _genSync({samePrng: true});
+        _genAsync({samePrng: true}, function(pair2) {
+          _pairCmp(pair1, pair2);
+          done();
+        });
       });
-    });
 
     it('should generate same 512 bit key pair (prng+async,prng+sync)',
       function(done) {
-      if(!isDeterministic(true, true, false) ||
-        !isDeterministic(true, false, false)) {
-        this.skip();
-      }
-      _genAsync({samePrng: true}, function(pair1) {
-        var pair2 = _genSync({samePrng: true});
-        _pairCmp(pair1, pair2);
-        done();
+        if (!isDeterministic(true, true, false) ||
+          !isDeterministic(true, false, false)) {
+          this.skip();
+        }
+        _genAsync({samePrng: true}, function(pair1) {
+          var pair2 = _genSync({samePrng: true});
+          _pairCmp(pair1, pair2);
+          done();
+        });
       });
-    });
 
     it('should generate same 512 bit key pair (prng+async,prng+async)',
       function(done) {
-      if(!isDeterministic(true, true, false) ||
-        !isDeterministic(true, true, false)) {
-        this.skip();
-      }
-      var pair1;
-      var pair2;
-      // finish when both complete
-      function _done() {
-        if(pair1 && pair2) {
-          _pairCmp(pair1, pair2);
-          done();
+        if (!isDeterministic(true, true, false) ||
+          !isDeterministic(true, true, false)) {
+          this.skip();
         }
-      }
-      _genAsync({samePrng: true}, function(pair) {
-        pair1 = pair;
-        _done();
+        var pair1;
+        var pair2;
+
+        // finish when both complete
+        function _done() {
+          if (pair1 && pair2) {
+            _pairCmp(pair1, pair2);
+            done();
+          }
+        }
+
+        _genAsync({samePrng: true}, function(pair) {
+          pair1 = pair;
+          _done();
+        });
+        _genAsync({samePrng: true}, function(pair) {
+          pair2 = pair;
+          _done();
+        });
       });
-      _genAsync({samePrng: true}, function(pair) {
-        pair2 = pair;
-        _done();
-      });
-    });
 
     it('should convert private key to/from PEM', function() {
       var privateKey = PKI.privateKeyFromPem(_pem.privateKey);
@@ -344,7 +383,7 @@ var UTIL = require('../../lib/util');
         it('should legacy (OpenSSL style) encrypt and decrypt private key with ' + algorithm, function() {
           var privateKey = PKI.privateKeyFromPem(_pem.privateKey);
           var encryptedPem = PKI.encryptRsaPrivateKey(
-             privateKey, 'password', {algorithm: algorithm, legacy: true});
+            privateKey, 'password', {algorithm: algorithm, legacy: true});
           privateKey = PKI.decryptRsaPrivateKey(encryptedPem, 'password');
           ASSERT.equal(PKI.privateKeyToPem(privateKey), _pem.privateKey);
         });
@@ -513,7 +552,7 @@ var UTIL = require('../../lib/util');
         signatureWithAbcSalt: 'HCm0FI1jE6wQgwwi0ZwPTkGjssxAPtRh6tWXhNd2J2IoJYj9oQMMjCEElnvQFBa/l00sIsw2YV1tKyoTABaSTGV4vlJcDF+K0g/wiAf30TRUZo72DZKDNdyffDlH0wBDkNVW+F6uqdciJqBC6zz+unNh7x+FRwYaY8xhudIPXdyP',
         signatureWithCustomPrng: 'AGyN8xu+0yfCR1tyB9mCXcTGb2vdLnsX9ro2Qy5KV6Hw5YMVNltAt65dKR4Y8pfu6D4WUyyJRUtJ8td2ZHYzIVtWY6bG1xFt5rkjTVg4v1tzQgUQq8AHvRE2qLzwDXhazJ1e6Id2Nuxb1uInFyRC6/gLmiPga1WRDEVvFenuIA48'
       }];
-      for(var i = 0; i < tests.length; ++i) {
+      for (var i = 0; i < tests.length; ++i) {
         createTests(tests[i]);
       }
 

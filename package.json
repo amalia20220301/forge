@@ -119,5 +119,10 @@
     "buffer": false,
     "crypto": false,
     "process": false
+  },
+  "dependencies": {
+    "hash.js": "^1.1.7",
+    "hmac-drbg": "^1.0.1",
+    "pify": "^5.0.0"
   }
 }
